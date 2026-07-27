@@ -101,9 +101,9 @@ Created time:
 		},
 	}
 	c.Flags().StringSliceVarP(&opts.bundleContentPaths, "filenames", "f", []string{}, "List of fully-qualified file paths containing YAML or JSON defined Tekton objects to include in this bundle")
-	c.Flags().StringSliceVarP(&opts.annotationParams, "annotate", "", []string{}, "OCI Manifest annotation in the form of key=value to be added to the OCI image. Can be provided multiple times to add multiple annotations.")
+	c.Flags().StringArrayVarP(&opts.annotationParams, "annotate", "", []string{}, "OCI Manifest annotation in the form of key=value to be added to the OCI image. Can be provided multiple times to add multiple annotations.")
 	c.Flags().StringVar(&opts.ctimeParam, "ctime", "", "YYYY-MM-DD, YYYY-MM-DDTHH:MM:SS or RFC3339 formatted created time to set, defaults to current time. In non RFC3339 syntax dates are in UTC timezone.")
-	c.Flags().StringSliceVarP(&opts.labelParams, "label", "", []string{}, "OCI Config labels in the form of key=value to be added to the OCI image. Can be provided multiple times to add multiple labels.")
+	c.Flags().StringArrayVarP(&opts.labelParams, "label", "", []string{}, "OCI Config labels in the form of key=value to be added to the OCI image. Can be provided multiple times to add multiple labels.")
 	bundle.AddRemoteFlags(c.Flags(), &opts.remoteOptions)
 
 	return c

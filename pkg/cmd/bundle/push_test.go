@@ -334,6 +334,31 @@ func TestPreRunE(t *testing.T) {
 	}
 }
 
+func TestAnnotateAndLabelFlags_CommaInValue(t *testing.T) {
+	p := cli.TektonParams{}
+	cmd := pushCommand(&p)
+
+	if err := cmd.Flags().Parse([]string{"--annotate", "test=a,b", "--label", "test=c,d"}); err != nil {
+		t.Fatalf("unexpected error parsing flags: %v", err)
+	}
+
+	annotations, err := cmd.Flags().GetStringArray("annotate")
+	if err != nil {
+		t.Fatalf("unexpected error reading annotate flag: %v", err)
+	}
+	if want := []string{"test=a,b"}; !cmp.Equal(annotations, want) {
+		t.Errorf("expected --annotate to preserve commas in the value, wanted %v, got %v", want, annotations)
+	}
+
+	labels, err := cmd.Flags().GetStringArray("label")
+	if err != nil {
+		t.Fatalf("unexpected error reading label flag: %v", err)
+	}
+	if want := []string{"test=c,d"}; !cmp.Equal(labels, want) {
+		t.Errorf("expected --label to preserve commas in the value, wanted %v, got %v", want, labels)
+	}
+}
+
 func TestParseArgsAndFlags(t *testing.T) {
 	cases := []struct {
 		name                string
