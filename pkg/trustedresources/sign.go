@@ -77,7 +77,26 @@ func Sign(o metav1.Object, keyfile, kmsKey, targetFile string) error {
 	}
 	a[SignatureAnnotation] = base64.StdEncoding.EncodeToString(sig)
 	o.SetAnnotations(a)
-	signedBuf, err := yaml.Marshal(o)
+
+	// Marshal through a generic map instead of yaml.Marshal(o) directly, so
+	// stripEmptyResources can drop the spurious "resources: {}" that Go's
+	// encoding/json adds despite the omitempty tag: omitempty has no effect
+	// on non-pointer struct fields like Step/Sidecar/StepTemplate's embedded
+	// corev1.ResourceRequirements. Tekton's API doesn't accept that field on
+	// steps, so leaving it in makes the signed YAML fail strict decoding.
+	// This is computed after the signature, and doesn't invalidate it: on
+	// verify the field round-trips to the same zero value whether or not it
+	// is present in the YAML.
+	b, err := json.Marshal(o)
+	if err != nil {
+		return err
+	}
+	var m map[string]interface{}
+	if err := json.Unmarshal(b, &m); err != nil {
+		return err
+	}
+	stripEmptyResources(m, "")
+	signedBuf, err := yaml.Marshal(m)
 	if err != nil {
 		return err
 	}
@@ -91,6 +110,39 @@ func Sign(o metav1.Object, keyfile, kmsKey, targetFile string) error {
 	_, err = f.Write(signedBuf)
 
 	return err
+}
+
+// stepLikeKeys are the object keys under which an embedded, non-pointer
+// corev1.ResourceRequirements can appear (Step, Sidecar, StepTemplate).
+// Other Tekton fields also named "resources" (e.g. TaskSpec.Resources,
+// PipelineTask.Resources) are pointer-typed, so omitempty already handles
+// them correctly and they must not be touched here.
+var stepLikeKeys = map[string]bool{
+	"steps":        true,
+	"sidecars":     true,
+	"stepTemplate": true,
+}
+
+// stripEmptyResources walks a decoded JSON value and, for any map reached
+// through a step-like key, removes a "resources" key whose value is an
+// empty object, in place. key is the object key under which v was reached
+// ("" for the root).
+func stripEmptyResources(v interface{}, key string) {
+	switch t := v.(type) {
+	case map[string]interface{}:
+		if stepLikeKeys[key] {
+			if r, ok := t["resources"].(map[string]interface{}); ok && len(r) == 0 {
+				delete(t, "resources")
+			}
+		}
+		for k, val := range t {
+			stripEmptyResources(val, k)
+		}
+	case []interface{}:
+		for _, val := range t {
+			stripEmptyResources(val, key)
+		}
+	}
 }
 
 // signInterface returns the encoded signature for the given object.

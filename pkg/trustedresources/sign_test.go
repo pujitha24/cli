@@ -25,6 +25,7 @@ import (
 	"encoding/pem"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/pkg/errors"
@@ -102,6 +103,10 @@ func TestSign(t *testing.T) {
 				t.Fatalf("error reading file: %v", err)
 			}
 
+			if strings.Contains(string(signed), "resources:") {
+				t.Errorf("signed output should not contain an empty \"resources\" field, got:\n%s", signed)
+			}
+
 			target, signature, err := UnmarshalCRD(signed, tc.kind)
 			if err != nil {
 				t.Fatalf("error unmarshalling crd: %v", err)
@@ -110,6 +115,64 @@ func TestSign(t *testing.T) {
 				t.Fatalf("VerifyTaskOCIBundle get error: %v", err)
 			}
 		})
+	}
+}
+
+func TestStripEmptyResources(t *testing.T) {
+	in := map[string]interface{}{
+		"spec": map[string]interface{}{
+			// TaskSpec.Resources / PipelineTask.Resources are pointer-typed,
+			// so an explicit empty object here is meaningful and must be kept.
+			"resources": map[string]interface{}{},
+			"steps": []interface{}{
+				map[string]interface{}{
+					"name":      "build",
+					"resources": map[string]interface{}{},
+				},
+				map[string]interface{}{
+					"name": "test",
+					"resources": map[string]interface{}{
+						"limits": map[string]interface{}{"cpu": "1"},
+					},
+				},
+			},
+			"sidecars": []interface{}{
+				map[string]interface{}{
+					"name":      "sidecar",
+					"resources": map[string]interface{}{},
+				},
+			},
+			"stepTemplate": map[string]interface{}{
+				"resources": map[string]interface{}{},
+			},
+		},
+	}
+
+	stripEmptyResources(in, "")
+
+	spec := in["spec"].(map[string]interface{})
+	if _, ok := spec["resources"]; !ok {
+		t.Errorf("expected pointer-typed spec.resources field to be kept, got %v", spec)
+	}
+
+	steps := spec["steps"].([]interface{})
+	first := steps[0].(map[string]interface{})
+	if _, ok := first["resources"]; ok {
+		t.Errorf("expected empty step resources field to be stripped, got %v", first)
+	}
+	second := steps[1].(map[string]interface{})
+	if _, ok := second["resources"]; !ok {
+		t.Errorf("expected non-empty step resources field to be kept, got %v", second)
+	}
+
+	sidecar := spec["sidecars"].([]interface{})[0].(map[string]interface{})
+	if _, ok := sidecar["resources"]; ok {
+		t.Errorf("expected empty sidecar resources field to be stripped, got %v", sidecar)
+	}
+
+	stepTemplate := spec["stepTemplate"].(map[string]interface{})
+	if _, ok := stepTemplate["resources"]; ok {
+		t.Errorf("expected empty stepTemplate resources field to be stripped, got %v", stepTemplate)
 	}
 }
 
