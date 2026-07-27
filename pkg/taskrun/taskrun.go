@@ -80,15 +80,17 @@ func Filter(trs []Run, ts []string) []Run {
 }
 
 func SortTasksBySpecOrder(pipelineTasks []v1.PipelineTask, pipelinesTaskRuns map[string]*v1.PipelineRunTaskRunStatus) []Run {
-	trNames := map[string]string{}
+	// A PipelineTask can fan out into multiple TaskRuns (e.g. via matrix),
+	// so track every TaskRun name for a given PipelineTask, not just one.
+	trNames := map[string][]string{}
 
 	for name, t := range pipelinesTaskRuns {
-		trNames[t.PipelineTaskName] = name
+		trNames[t.PipelineTaskName] = append(trNames[t.PipelineTaskName], name)
 	}
 	trs := Runs{}
 
 	for _, ts := range pipelineTasks {
-		if n, ok := trNames[ts.Name]; ok {
+		for _, n := range trNames[ts.Name] {
 			trStatusFields := pipelinesTaskRuns[n].Status.TaskRunStatusFields
 			trs = append(trs, Run{
 				Task:           ts.Name,
