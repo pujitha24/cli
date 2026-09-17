@@ -267,35 +267,81 @@ func TestDeterministicLayers(t *testing.T) {
 		t.Errorf("expecting 3 layers got: %d", l)
 	}
 
-	compare := func(n int, expected string) {
-		digest, err := layers[n].Digest()
-		if err != nil {
-			t.Errorf("unexpected error: %v", err)
-		}
-
-		got := digest.String()
-		if got != expected {
-			t.Errorf("unexpected digest for layer %d: %s, expecting %s", n, got, expected)
-		}
+	// BuildTektonBundle sorts its input by content digest before creating
+	// layers, so the resulting layer digests must not depend on the order
+	// the tasks were supplied in. Build a second image from the reversed
+	// task order and compare layer-for-layer instead of pinning literal
+	// digest strings, since those also encode the exact bytes produced by
+	// the Go toolchain's gzip/flate implementation and change across Go
+	// versions even though the bundle contents are unchanged.
+	reversed := make([]string, len(threeTasks))
+	for i, task := range threeTasks {
+		reversed[len(threeTasks)-1-i] = task
 	}
 
-	compare(0, "sha256:561b99bf08733028cbc799caf7f8b74e1f633d3acb7c6d25d880bae4b32cd0b5")
-	compare(1, "sha256:bd941a3b5d1618820ba5283fd0dd4138379fef0e927864d35629cfdc1bdd2f3f")
-	compare(2, "sha256:751deb7e696b6a4f30a2e23f25f97a886cbff22fe832a0c7ed956598ec489f58")
+	reversedImg, err := BuildTektonBundle(reversed, nil, nil, time.Now(), &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	reversedLayers, err := reversedImg.Layers()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if l := len(reversedLayers); l != 3 {
+		t.Fatalf("expecting 3 layers got: %d", l)
+	}
+
+	for n := range layers {
+		digest, err := layers[n].Digest()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		reversedDigest, err := reversedLayers[n].Digest()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if digest != reversedDigest {
+			t.Errorf("layer %d digest depends on input order: %s != %s", n, digest, reversedDigest)
+		}
+	}
 }
 
 func TestDeterministicManifest(t *testing.T) {
 	img, err := BuildTektonBundle(threeTasks, nil, nil, time.Time{}, &bytes.Buffer{})
 	if err != nil {
-		t.Errorf("unexpected error: %v", err)
+		t.Fatalf("unexpected error: %v", err)
 	}
 
 	digest, err := img.Digest()
 	if err != nil {
-		t.Errorf("unexpected error: %v", err)
+		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if expected, got := "sha256:7a4f604555b84cdb06cbfebda3fb599cd7485ef2c9c9375ab589f192a3addb4c", digest.String(); expected != got {
-		t.Errorf("unexpected image digest: %s, expecting %s", got, expected)
+	// As in TestDeterministicLayers, compare against a second build made
+	// from the reversed task order instead of a literal digest string: the
+	// manifest digest also depends on the exact compressed layer bytes,
+	// which vary across Go toolchain versions even for identical bundle
+	// contents.
+	reversed := make([]string, len(threeTasks))
+	for i, task := range threeTasks {
+		reversed[len(threeTasks)-1-i] = task
+	}
+
+	reversedImg, err := BuildTektonBundle(reversed, nil, nil, time.Time{}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	reversedDigest, err := reversedImg.Digest()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if digest != reversedDigest {
+		t.Errorf("manifest digest depends on input order: %s != %s", digest, reversedDigest)
 	}
 }
